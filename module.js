@@ -15,7 +15,7 @@ function loadDecisions() {
     .then(c => c.find({}).toArray());
 }
 
-function updateDecision({ decision }) {
+function updateDecision(decision) {
   const { title, answer } = decision;
 
   return decisionsCollectionPromise
@@ -25,7 +25,7 @@ function updateDecision({ decision }) {
     );
 }
 
-function createDecision({ decision }) {
+function createDecision(decision) {
   const { title, answer } = decision;
 
   return decisionsCollectionPromise
@@ -38,56 +38,60 @@ function createDecision({ decision }) {
 amqp.connect(`amqp://${rabbitmqHost}:${rabbitmqPort}`)
   .then(conn => conn.createChannel())
   .then(ch => {
-    ch.assertQueue('events', { durable: true });
-    ch.prefetch(1);
+    ch.assertExchange('events', 'topic', { durable: true });
+    ch.assertQueue('decisions-service', { durable: true })
+      .then(q => {
+        ch.prefetch(1);
+        ch.bindQueue(q.queue, 'events', 'decisions.*');
 
-    ch.consume('events', msg => {
-      let event;
+        ch.consume(q.queue, msg => {
+          let data;
 
-      try {
-        event = JSON.parse(msg.content.toString());
-      } catch (err) {
-        winston.error(err, msg.content.toString());
-        return;
-      }
+          try {
+            data = JSON.parse(msg.content.toString());
+          } catch (err) {
+            winston.error(err, msg.content.toString());
+            return;
+          }
 
-      switch (event.type) {
-        case 'LOAD_DECISIONS':
-          loadDecisions(ch, event)
-            .then(data => {
-              ch.sendToQueue(
-                msg.properties.replyTo,
-                new Buffer(JSON.stringify({ type: 'LOAD_DECISIONS', data })),
-                { correlationId: msg.properties.correlationId }
-              );
-              ch.ack(msg);
-            });
-          break;
-        case 'UPDATE_DECISION':
-          updateDecision(event)
-            .then(data => {
-              ch.sendToQueue(
-                msg.properties.replyTo,
-                new Buffer(JSON.stringify({ type: 'UPDATE_DECISION', data })),
-                { correlationId: msg.properties.correlationId }
-              );
-              ch.ack(msg);
-            });
-          break;
-        case 'CREATE_DECISION':
-          createDecision(event)
-            .then(data => {
-              ch.sendToQueue(
-                msg.properties.replyTo,
-                new Buffer(JSON.stringify({ type: 'CREATE_DECISION', data })),
-                { correlationId: msg.properties.correlationId }
-              );
-              ch.ack(msg);
-            });
-          break;
-        default:
-          ch.nack(msg);
-          return;
-      }
-    }, { noAck: false });
+          switch (msg.fields.routingKey) {
+            case 'decisions.load':
+              loadDecisions(ch, data)
+                .then(decisions => {
+                  ch.sendToQueue(
+                    msg.properties.replyTo,
+                    new Buffer(JSON.stringify(decisions)),
+                    { correlationId: msg.properties.correlationId }
+                  );
+                  ch.ack(msg);
+                });
+              break;
+            case 'decisions.update':
+              updateDecision(data)
+                .then(decision => {
+                  ch.sendToQueue(
+                    msg.properties.replyTo,
+                    new Buffer(JSON.stringify(decision)),
+                    { correlationId: msg.properties.correlationId }
+                  );
+                  ch.ack(msg);
+                });
+              break;
+            case 'decisions.create':
+              createDecision(data)
+                .then(decision => {
+                  ch.sendToQueue(
+                    msg.properties.replyTo,
+                    new Buffer(JSON.stringify(decision)),
+                    { correlationId: msg.properties.correlationId }
+                  );
+                  ch.ack(msg);
+                });
+              break;
+            default:
+              ch.nack(msg);
+              return;
+          }
+        }, { noAck: false });
+      });
   });

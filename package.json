@@ -1,5 +1,5 @@
 {
-  "name": "voting-service",
+  "name": "decisions-service",
   "version": "1.0.0",
   "description": "",
   "main": "module.js",
