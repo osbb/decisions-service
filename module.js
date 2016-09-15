@@ -2,12 +2,9 @@ import amqp from 'amqplib';
 import { MongoClient, ObjectId } from 'mongodb';
 import winston from 'winston';
 
-const rabbitmqHost = process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost';
-const rabbitmqPort = process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672;
-
-const mongoHost = process.env.MONGO_PORT_27017_TCP_ADDR || 'localhost';
-const mongoPort = process.env.MONGO_PORT_27017_TCP_PORT || 27017;
-const connection = MongoClient.connect(`mongodb://${mongoHost}:${mongoPort}`); // connection promise
+const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
+const mongoUrl = process.env.MONGO_URL || 'mongodb://localhost:27017';
+const connection = MongoClient.connect(mongoUrl); // connection promise
 const decisionsCollectionPromise = connection.then(db => db.collection('decisions'));
 
 function loadDecisions() {
@@ -35,7 +32,25 @@ function createDecision(decision) {
     );
 }
 
-amqp.connect(`amqp://${rabbitmqHost}:${rabbitmqPort}`)
+const connectToRabbitMQ = new Promise(resolve => {
+  function openConnection() {
+    winston.info('Connecting to RabbitMQ...');
+    amqp.connect(rabbitmqUrl)
+      .then(conn => {
+        winston.info('Connected!');
+        resolve(conn);
+      })
+      .catch(() => {
+        winston.info('Connection failure. Retry in 5 sec.');
+        setTimeout(() => {
+          openConnection();
+        }, 5000);
+      });
+  }
+  openConnection();
+});
+
+connectToRabbitMQ
   .then(conn => conn.createChannel())
   .then(ch => {
     ch.assertExchange('events', 'topic', { durable: true });
