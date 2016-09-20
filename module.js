@@ -1,91 +1,66 @@
-import amqp from 'amqplib';
-import { MongoClient } from 'mongodb';
+import { getRabbitConnection } from './rabbit-connection';
+import { getMongoConnection } from './mongo-connection';
 import winston from 'winston';
 import * as Decisions from './decisions';
 
-const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
-const mongoUrl = process.env.MONGO_URL || 'mongodb://localhost:27017';
-const connection = MongoClient.connect(mongoUrl); // connection promise
+function sendResponseToMsg(ch, msg, data) {
+  return ch.sendToQueue(
+    msg.properties.replyTo,
+    new Buffer(JSON.stringify(data)),
+    { correlationId: msg.properties.correlationId }
+  );
+}
 
-const connectToRabbitMQ = new Promise(resolve => {
-  function openConnection() {
-    winston.info('Connecting to RabbitMQ...');
-    amqp.connect(rabbitmqUrl)
-      .then(conn => {
-        winston.info('Connected!');
-        resolve(conn);
-      })
-      .catch(() => {
-        winston.info('Connection failure. Retry in 5 sec.');
-        setTimeout(() => {
-          openConnection();
-        }, 5000);
-      });
-  }
-
-  openConnection();
-});
-
-connectToRabbitMQ
-  .then(conn => conn.createChannel())
-  .then(ch => {
+Promise
+// wait for connection to RabbitMQ and MongoDB
+  .all([getRabbitConnection(), getMongoConnection()])
+  // create channel rabbit
+  .then(([conn, db]) => Promise.all([conn.createChannel(), db]))
+  .then(([ch, db]) => {
+    // create topic
     ch.assertExchange('events', 'topic', { durable: true });
+    // create queue
     ch.assertQueue('decisions-service', { durable: true })
       .then(q => {
+        // fetch by one message from queue
         ch.prefetch(1);
+        // bind queue to topic
         ch.bindQueue(q.queue, 'events', 'decisions.*');
-
+        // listen to new messages
         ch.consume(q.queue, msg => {
           let data;
 
           try {
+            // messages always should be JSONs
             data = JSON.parse(msg.content.toString());
           } catch (err) {
+            // log error and exit
             winston.error(err, msg.content.toString());
             return;
           }
 
+          // map a routing key with actual logic
           switch (msg.fields.routingKey) {
             case 'decisions.load':
-              connection
-                .then(db => Decisions.load(db))
-                .then(decisions => {
-                  ch.sendToQueue(
-                    msg.properties.replyTo,
-                    new Buffer(JSON.stringify(decisions)),
-                    { correlationId: msg.properties.correlationId }
-                  );
-                  ch.ack(msg);
-                });
+              Decisions.load(db) // logic call
+                .then(decisions => sendResponseToMsg(ch, msg, decisions)) // send response to queue
+                .then(() => ch.ack(msg)); // notify queue message was processed
               break;
             case 'decisions.update':
-              connection
-                .then(db => Decisions.update(db, data))
-                .then(decision => {
-                  ch.sendToQueue(
-                    msg.properties.replyTo,
-                    new Buffer(JSON.stringify(decision)),
-                    { correlationId: msg.properties.correlationId }
-                  );
-                  ch.ack(msg);
-                });
+              Decisions.update(db, data) // logic call
+                .then(decision => sendResponseToMsg(ch, msg, decision)) // send response to queue
+                .then(() => ch.ack(msg)); // notify queue message was processed
               break;
             case 'decisions.create':
-              connection
-                .then(db => Decisions.create(db, data))
-                .then(decision => {
-                  ch.sendToQueue(
-                    msg.properties.replyTo,
-                    new Buffer(JSON.stringify(decision)),
-                    { correlationId: msg.properties.correlationId }
-                  );
-                  ch.ack(msg);
-                });
+              Decisions.create(db, data) // logic call
+                .then(decision => sendResponseToMsg(ch, msg, decision)) // send response to queue
+                .then(() => ch.ack(msg)); // notify queue message was processed
               break;
             default:
+              // if we can't process this message, we should send it back to queue
               ch.nack(msg);
               return;
           }
-        }, { noAck: false });
+        });
       });
   });
