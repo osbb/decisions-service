@@ -1,36 +1,11 @@
 import amqp from 'amqplib';
-import { MongoClient, ObjectId } from 'mongodb';
+import { MongoClient } from 'mongodb';
 import winston from 'winston';
+import * as Decisions from './decisions';
 
 const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
 const mongoUrl = process.env.MONGO_URL || 'mongodb://localhost:27017';
 const connection = MongoClient.connect(mongoUrl); // connection promise
-const decisionsCollectionPromise = connection.then(db => db.collection('decisions'));
-
-function loadDecisions() {
-  return decisionsCollectionPromise
-    .then(c => c.find({}).toArray());
-}
-
-function updateDecision(decision) {
-  const { title, answer } = decision;
-
-  return decisionsCollectionPromise
-    .then(c => c.updateOne({ _id: ObjectId(decision._id) }, { $set: { title, answer } }))
-    .then(() => decisionsCollectionPromise
-      .then(c => c.findOne({ _id: ObjectId(decision._id) }, {}))
-    );
-}
-
-function createDecision(decision) {
-  const { title, answer } = decision;
-
-  return decisionsCollectionPromise
-    .then(c => c.insertOne({ title, answer }, {}))
-    .then(res => decisionsCollectionPromise
-      .then(c => c.findOne({ _id: ObjectId(res.insertedId) }, {}))
-    );
-}
 
 const connectToRabbitMQ = new Promise(resolve => {
   function openConnection() {
@@ -47,6 +22,7 @@ const connectToRabbitMQ = new Promise(resolve => {
         }, 5000);
       });
   }
+
   openConnection();
 });
 
@@ -71,7 +47,8 @@ connectToRabbitMQ
 
           switch (msg.fields.routingKey) {
             case 'decisions.load':
-              loadDecisions(ch, data)
+              connection
+                .then(db => Decisions.load(db))
                 .then(decisions => {
                   ch.sendToQueue(
                     msg.properties.replyTo,
@@ -82,7 +59,8 @@ connectToRabbitMQ
                 });
               break;
             case 'decisions.update':
-              updateDecision(data)
+              connection
+                .then(db => Decisions.update(db, data))
                 .then(decision => {
                   ch.sendToQueue(
                     msg.properties.replyTo,
@@ -93,7 +71,8 @@ connectToRabbitMQ
                 });
               break;
             case 'decisions.create':
-              createDecision(data)
+              connection
+                .then(db => Decisions.create(db, data))
                 .then(decision => {
                   ch.sendToQueue(
                     msg.properties.replyTo,
