@@ -1,6 +1,6 @@
 import chai from 'chai';
 import { MongoClient, ObjectId } from 'mongodb';
-import * as Decisions from '../db';
+import * as Polls from '../db';
 
 chai.should();
 
@@ -12,36 +12,36 @@ before(() => MongoClient.connect('mongodb://localhost:27017/testing')
   })
 );
 
-describe('Decisions Service', () => {
-  const decisions = [
+describe('Polls Service', () => {
+  const polls = [
     { _id: new ObjectId() },
     { _id: new ObjectId() },
     { _id: new ObjectId() },
   ];
 
-  before(() => db.collection('decisions').insert(decisions));
+  before(() => db.collection('polls').insert(polls));
 
-  after(() => db.collection('decisions').remove({}));
+  after(() => db.collection('polls').remove({}));
 
   it(
-    'should load decisions from database',
-    () => Decisions.load(db)
+    'should load polls from database',
+    () => Polls.load(db)
       .then(res => {
         res.should.have.length(3);
       })
   );
 
   it(
-    'should update decision in database',
-    () => Decisions.update(db, Object.assign({}, { _id: decisions[0]._id, title: 'test' }))
+    'should update poll in database',
+    () => Polls.update(db, Object.assign({}, { _id: polls[0]._id, title: 'test' }))
       .then(res => {
         res.should.have.property('title').equal('test');
       })
   );
 
   it(
-    'should create decision in database',
-    () => Decisions.create(db, Object.assign({}, { title: 'test' }))
+    'should create poll in database',
+    () => Polls.create(db, Object.assign({}, { title: 'test' }))
       .then(res => {
         res.should.have.property('title').equal('test');
       })

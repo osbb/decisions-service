@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import _ from 'lodash';
 
-const COLLECTION = 'decisions';
+const COLLECTION = 'polls';
 
 export function load(db) {
   return db.collection(COLLECTION).find({}).toArray();

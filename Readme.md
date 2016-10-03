@@ -1,6 +1,6 @@
 # Build
 ```
-docker build -t osbb/decisions-service . --no-cache
+docker build -t osbb/polls-service . --no-cache
 ```
 
 # Run

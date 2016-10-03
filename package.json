@@ -1,5 +1,5 @@
 {
-  "name": "decisions-service",
+  "name": "polls-service",
   "version": "1.0.0",
   "description": "",
   "main": "module.js",

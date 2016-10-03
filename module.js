@@ -1,7 +1,7 @@
 import { getRabbitConnection } from './rabbit-connection';
 import { getMongoConnection } from './mongo-connection';
 import winston from 'winston';
-import * as Decisions from './db';
+import * as Polls from './db';
 
 function sendResponseToMsg(ch, msg, data) {
   return ch.sendToQueue(
@@ -20,12 +20,12 @@ Promise
     // create topic
     ch.assertExchange('events', 'topic', { durable: true });
     // create queue
-    ch.assertQueue('decisions-service', { durable: true })
+    ch.assertQueue('polls-service', { durable: true })
       .then(q => {
         // fetch by one message from queue
         ch.prefetch(1);
         // bind queue to topic
-        ch.bindQueue(q.queue, 'events', 'decisions.*');
+        ch.bindQueue(q.queue, 'events', 'polls.*');
         // listen to new messages
         ch.consume(q.queue, msg => {
           let data;
@@ -41,19 +41,19 @@ Promise
 
           // map a routing key with actual logic
           switch (msg.fields.routingKey) {
-            case 'decisions.load':
-              Decisions.load(db) // logic call
-                .then(decisions => sendResponseToMsg(ch, msg, decisions)) // send response to queue
+            case 'polls.load':
+              Polls.load(db) // logic call
+                .then(polls => sendResponseToMsg(ch, msg, polls)) // send response to queue
                 .then(() => ch.ack(msg)); // notify queue message was processed
               break;
-            case 'decisions.update':
-              Decisions.update(db, data) // logic call
-                .then(decision => sendResponseToMsg(ch, msg, decision)) // send response to queue
+            case 'polls.update':
+              Polls.update(db, data) // logic call
+                .then(poll => sendResponseToMsg(ch, msg, poll)) // send response to queue
                 .then(() => ch.ack(msg)); // notify queue message was processed
               break;
-            case 'decisions.create':
-              Decisions.create(db, data) // logic call
-                .then(decision => sendResponseToMsg(ch, msg, decision)) // send response to queue
+            case 'polls.create':
+              Polls.create(db, data) // logic call
+                .then(poll => sendResponseToMsg(ch, msg, poll)) // send response to queue
                 .then(() => ch.ack(msg)); // notify queue message was processed
               break;
             default:
