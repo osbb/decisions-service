@@ -56,6 +56,11 @@ Promise
                 .then(poll => sendResponseToMsg(ch, msg, poll)) // send response to queue
                 .then(() => ch.ack(msg)); // notify queue message was processed
               break;
+            case 'polls.delete':
+              Polls.remove(db, data) // logic call
+                .then(poll => sendResponseToMsg(ch, msg, poll)) // send response to queue
+                .then(() => ch.ack(msg)); // notify queue message was processed
+              break;
             default:
               // if we can't process this message, we should send it back to queue
               ch.nack(msg);
